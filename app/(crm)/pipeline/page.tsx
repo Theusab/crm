@@ -5,7 +5,7 @@ export default async function PipelinePage() {
   const supabase = await createAppClient();
   const [{ data: stages, error: stagesError }, { data: leads, error: leadsError }] = await Promise.all([
     supabase.from("pipeline_stages").select("id,name,color,slug").order("position"),
-    supabase.from("leads").select("id,name,company,value,stage_id,score,position").order("position"),
+    supabase.from("leads").select("id,name,company,value,stage_id,score,position,custom").eq("custom->>record_type", "lead").order("position").limit(1000),
   ]);
   if (stagesError || leadsError) throw new Error(`Falha ao carregar o funil: ${stagesError?.message ?? leadsError?.message}`);
   return <div>

@@ -526,7 +526,7 @@
   left: 7px;
   height: 10px;
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   gap: 3px;
   opacity: .46;
 }
@@ -1247,7 +1247,7 @@
 
 .benefitsHeading {
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 38px;
 }

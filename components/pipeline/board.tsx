@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { moveLead } from "@/features/leads/actions";
 
 type Stage = { id: string; name: string; color: string; slug: string };
-type Lead = { id: string; name: string; company: string | null; value: number | null; stage_id: string; score: number | null };
+type Lead = { id: string; name: string; company: string | null; value: number | null; stage_id: string; score: number | null; custom: Record<string, unknown> | null };
 const money = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(value);
 
 export function Board({ stages, leads }: { stages: Stage[]; leads: Lead[] }) {
@@ -41,7 +41,7 @@ export function Board({ stages, leads }: { stages: Stage[]; leads: Lead[] }) {
             <div className="crm-column-total">{money(total)}</div>
             <div className="crm-dropzone">
               {cards.map((lead) => <article className="crm-card" key={lead.id} draggable onDragStart={() => setDragged(lead.id)} onDragEnd={() => setDragged(null)}>
-                <strong>{lead.name}</strong><span>{lead.company || "Empresa não informada"}</span>
+                <strong>{lead.name}</strong><span>{[lead.company && lead.company !== lead.name ? lead.company : null, lead.custom?.city, lead.custom?.specialty].filter(Boolean).join(" · ") || "Empresa não informada"}</span>
                 <span className="crm-card-value">{money(Number(lead.value ?? 0))} {lead.score !== null && `· Score ${lead.score}`}</span>
               </article>)}
               {!cards.length && <span className="crm-note">Solte um lead nesta etapa</span>}

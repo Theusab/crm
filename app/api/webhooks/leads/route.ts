@@ -3,6 +3,8 @@ import { NextResponse, after } from "next/server"; // Next 15. No 14.x: import {
 import { z } from "zod";
 import OpenAI from "openai";
 import { createAdminClient } from "@/lib/supabase/admin"; // service_role, apenas no servidor
+import { sendEvolutionText } from "@/lib/integrations/evolution";
+import { getRecordType, withRecordType } from "@/lib/leads/record-type";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,8 +72,19 @@ export async function POST(req: Request) {
 
   // 4. Deduplicação de lead (mesmo email ou telefone)
   const filters = [email && `email.eq.${email}`, phone && `phone.eq.${phone}`].filter(Boolean).join(",");
-  const { data: existing } = await db.from("leads").select("id").or(filters).limit(1).maybeSingle();
+  const { data: existing, error: existingError } = await db.from("leads").select("id,custom").or(filters).limit(1).maybeSingle();
+  if (existingError) {
+    await finish("failed", { error: existingError.message });
+    return NextResponse.json({ error: "falha ao localizar o lead" }, { status: 500 });
+  }
   if (existing) {
+    if (getRecordType(existing.custom) === "contact") {
+      const { error: promoteError } = await db.from("leads").update({ custom: withRecordType(existing.custom, "lead") }).eq("id", existing.id);
+      if (promoteError) {
+        await finish("failed", { error: promoteError.message });
+        return NextResponse.json({ error: "falha ao converter contato em lead" }, { status: 500 });
+      }
+    }
     await db.from("activities").insert({
       lead_id: existing.id, type: "webhook_received",
       title: `Lead reenviado pela origem ${data.source}`, body: data.message ?? null,
@@ -87,7 +100,7 @@ export async function POST(req: Request) {
     .insert({
       name: data.name, email, phone, company: data.company, source: data.source,
       external_id: data.external_id, value: data.value, stage_id: stage!.id,
-      position: Date.now(), raw_payload: json as object,
+      position: Date.now(), raw_payload: json as object, custom: withRecordType({}, "lead"),
     })
     .select("id")
     .single();
@@ -111,6 +124,9 @@ export async function POST(req: Request) {
 
 // Mover para lib/ai/score-lead.ts
 async function scoreLead(db: Db, leadId: string, d: LeadInput) {
+  let score: number;
+  let reason: string;
+
   try {
     const openai = new OpenAI({ timeout: 15_000, maxRetries: 1 });
     const res = await openai.chat.completions.create({
@@ -139,18 +155,72 @@ async function scoreLead(db: Db, leadId: string, d: LeadInput) {
     });
 
     const out = JSON.parse(res.choices[0].message.content ?? "{}");
-    const score = Math.max(0, Math.min(100, Math.round(Number(out.score))));
+    const result = z.object({ score: z.number().int(), reason: z.string() }).safeParse(out);
+    if (!result.success) throw new Error("A resposta de pontuação da IA é inválida.");
+    score = Math.max(0, Math.min(100, result.data.score));
+    reason = result.data.reason;
     const model = process.env.OPENAI_MODEL!;
 
-    await db.from("leads").update({ score, score_reason: out.reason, score_model: model, scored_at: new Date().toISOString() }).eq("id", leadId);
-    await db.from("activities").insert({ lead_id: leadId, type: "score_updated", title: `Score IA: ${score}`, body: out.reason, metadata: { model } });
-
-    if (score >= 70) {
-      // Lead quente: mover para "Qualificado" e disparar a primeira mensagem via Evolution API
-      // (lib/integrations/evolution.ts), registrando a atividade 'whatsapp_out'.
-    }
+    const { error: updateError } = await db.from("leads").update({
+      score, score_reason: reason, score_model: model, scored_at: new Date().toISOString(),
+    }).eq("id", leadId);
+    if (updateError) throw new Error(`Falha ao salvar a pontuação: ${updateError.message}`);
+    const { error: activityError } = await db.from("activities").insert({
+      lead_id: leadId, type: "score_updated", title: `Score IA: ${score}`, body: reason, metadata: { model },
+    });
+    if (activityError) throw new Error(`Falha ao registrar a pontuação: ${activityError.message}`);
   } catch (e) {
-    // Falhou: o lead segue com score nulo; o cron /api/cron/rescore tenta de novo
-    await db.from("activities").insert({ lead_id: leadId, type: "system", title: "Falha ao pontuar com IA", body: String(e) });
+    await recordAutomationError(db, leadId, "Falha ao pontuar com IA", e);
+    return;
   }
+
+  if (score < 70) return;
+
+  try {
+    const { data: stage, error: stageError } = await db
+      .from("pipeline_stages")
+      .select("id")
+      .eq("slug", "qualificado")
+      .single();
+    if (stageError || !stage) throw new Error(`Etapa "Qualificado" indisponível: ${stageError?.message ?? "não encontrada"}`);
+
+    const { error: moveError } = await db.from("leads").update({ stage_id: stage.id }).eq("id", leadId);
+    if (moveError) throw new Error(`Falha ao mover lead para Qualificado: ${moveError.message}`);
+
+    const { data: setting, error: settingError } = await db
+      .from("crm_settings")
+      .select("value")
+      .eq("key", "whatsapp_qualified_lead")
+      .maybeSingle();
+    if (settingError) throw new Error(`Falha ao carregar a automação do WhatsApp: ${settingError.message}`);
+
+    const config = setting?.value as { enabled?: boolean; message_template?: string } | undefined;
+    const template = config?.message_template?.trim();
+    if (config?.enabled !== true || !template) return;
+    if (!d.phone) throw new Error("O lead foi qualificado, mas não tem telefone para receber WhatsApp.");
+
+    const message = template.replace(/\{nome\}/gi, d.name);
+    const { messageId } = await sendEvolutionText(d.phone, message);
+    const { error: activityError } = await db.from("activities").insert({
+      lead_id: leadId,
+      type: "whatsapp_out",
+      title: "Mensagem automática enviada pelo WhatsApp",
+      body: message,
+      metadata: { automation: "qualified_score", score, message_id: messageId },
+    });
+    if (activityError) throw new Error(`Mensagem enviada, mas não foi possível registrar a atividade: ${activityError.message}`);
+  } catch (e) {
+    await recordAutomationError(db, leadId, "Falha na automação de WhatsApp", e);
+  }
+}
+
+async function recordAutomationError(db: Db, leadId: string, title: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const { error: activityError } = await db.from("activities").insert({
+    lead_id: leadId,
+    type: "system",
+    title,
+    body: message,
+  });
+  if (activityError) console.error(`${title}; falha ao registrar atividade: ${activityError.message}`, message);
 }

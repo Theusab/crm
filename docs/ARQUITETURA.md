@@ -9,15 +9,24 @@ npm install
 npm run dev
 ```
 
-Configure `.env.local` com `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. O servidor também aceita `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY`. As operações administrativas precisam de `SUPABASE_SECRET_KEY` ou `SUPABASE_SERVICE_ROLE_KEY`; nunca exponha essa chave com o prefixo `NEXT_PUBLIC_`. No `npm run dev`, apenas requisições locais (`localhost`/`127.0.0.1`) ignoram o login e usam a chave secreta exclusivamente no servidor. O script vincula o Next a `127.0.0.1`; em produção a autenticação e a RLS continuam ativas. A página `/setup` explica a configuração quando as variáveis públicas ainda não estão disponíveis.
+Configure `.env.local` com `NEXT_PUBLIC_SUPABASE_URL` e uma chave pública válida: `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` ou `NEXT_PUBLIC_SUPABASE_ANON_KEY`. O servidor também aceita `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `SUPABASE_ANON_KEY`. As operações administrativas precisam de `SUPABASE_SECRET_KEY` ou `SUPABASE_SERVICE_ROLE_KEY`; nunca exponha essa chave com o prefixo `NEXT_PUBLIC_`. No `npm run dev`, apenas requisições locais (`localhost`/`127.0.0.1`) ignoram o login e usam a chave secreta exclusivamente no servidor. O script vincula o Next a `127.0.0.1`; em produção a autenticação e a RLS continuam ativas. A página `/setup` explica a configuração quando as variáveis públicas ainda não estão disponíveis.
+
+### Evolution API local
+
+O arquivo `docker-compose.whatsapp.yml` sobe Evolution API 2.3.7, PostgreSQL e Redis. É necessário instalar e iniciar Docker Desktop no Windows. Copie `.env.evolution.example` para `.env.evolution` (arquivo ignorado pelo Git) e substitua os três valores por segredos aleatórios. Depois execute `docker compose --env-file .env.evolution -f docker-compose.whatsapp.yml up -d`. A API fica disponível somente no computador em `http://localhost:8080`.
+
+Configure no `.env.local` `EVOLUTION_API_URL=http://127.0.0.1:8080`, `EVOLUTION_API_KEY` com o mesmo valor de `AUTHENTICATION_API_KEY` e `EVOLUTION_INSTANCE` com o nome da instância criada na Evolution. Gere também `WHATSAPP_WEBHOOK_SECRET` com um segredo independente. Para que o contêiner alcance o servidor CRM local, execute `npm run dev:whatsapp` e configure o webhook da instância para `http://host.docker.internal:3001/api/webhooks/evolution`, com cabeçalho `x-webhook-secret` igual a `WHATSAPP_WEBHOOK_SECRET` e evento `MESSAGES_UPSERT`. Esse modo de desenvolvimento escuta na interface de rede local; mantenha o Firewall do Windows ativo e não exponha a porta 3001 à internet.
+
+A Evolution API conecta um número de WhatsApp que você já controla; ela não fornece números gratuitos. Em produção, avalie a WhatsApp Business Platform oficial da Meta, pois automação por clientes não oficiais pode estar sujeita a restrições da plataforma.
 
 Antes do primeiro acesso, aplique as migrations do projeto Supabase. O primeiro usuário criado no Supabase Auth recebe o papel `admin`; a migration `0002` também vincula usuários Auth preexistentes sem perfil (o mais antigo vira admin se ainda não houver perfis). Depois entre em `/login`. O painel não usa leads de demonstração: sem registros, mostra estados vazios até que leads sejam cadastrados ou recebidos pelo webhook.
 
-O painel oferece visão geral, busca e filtro de leads, cadastro/edição/detalhe com atividades, funil com movimentação entre etapas, relatórios, gestão de equipe, configuração de etapas e status das integrações. `/cadastro` permite criar uma conta Supabase Auth; novos usuários recebem o papel `sales` pela trigger, e o primeiro usuário do workspace recebe `admin`. Configure a URL de callback atual do ambiente (`/auth/callback`) na lista de redirecionamentos permitidos do Supabase Auth. O banco continua sendo a fonte de verdade; RLS aplica as permissões descritas abaixo.
+O painel oferece visão geral, busca e filtro de leads, cadastro/edição/detalhe com atividades, funil com movimentação entre etapas, relatórios, gestão de equipe, configuração de etapas e status das integrações. `/conversations` reúne mensagens de WhatsApp recebidas e enviadas. Administradores podem enviar PDFs/TXTs à base de conhecimento em `/settings/knowledge`; os textos são divididos em trechos e indexados com `text-embedding-3-small`. O assistente só responde quando encontra contexto relevante e não responde quando não consegue fundamentar a resposta. Configure a Evolution API e `WHATSAPP_WEBHOOK_SECRET` no servidor, envie eventos `messages.upsert` para `/api/webhooks/evolution` usando o cabeçalho `x-webhook-secret` e ative o atendimento em Integrações. `/cadastro` permite criar uma conta Supabase Auth; novos usuários recebem o papel `sales` pela trigger, e o primeiro usuário do workspace recebe `admin`. Configure a URL de callback atual do ambiente (`/auth/callback`) na lista de redirecionamentos permitidos do Supabase Auth. O banco continua sendo a fonte de verdade; RLS aplica as permissões descritas abaixo.
 
 ## 1. Banco de dados
 
 Arquivo: `supabase/migrations/0001_init.sql`. Rode com `supabase db push` ou cole no SQL Editor.
+Execute também as migrations `0002_backfill_existing_profiles.sql`, `0003_whatsapp_automation.sql` e `0004_whatsapp_knowledge_assistant.sql`, na ordem, para as configurações do WhatsApp e a base vetorial.
 
 | Tabela | Papel |
 |---|---|
@@ -26,6 +35,9 @@ Arquivo: `supabase/migrations/0001_init.sql`. Rode com `supabase db push` ou col
 | `leads` | Lead com dono, estágio, `position` (ordem no Kanban), score IA, `raw_payload` e chaves únicas (email, telefone, origem + id externo). |
 | `activities` | Linha do tempo do lead. Append-only. `actor_id` nulo significa sistema ou IA. |
 | `webhook_events` | Caixa de entrada dos webhooks: idempotência, auditoria e reprocessamento. |
+| `crm_settings` | Configurações de mensagens e do atendimento automático, editáveis por administradores. |
+| `knowledge_documents` / `knowledge_chunks` | Documentos extraídos e trechos com embeddings vetoriais consultados pelo assistente. |
+| `whatsapp_inbox_events` | Idempotência e auditoria das mensagens recebidas pela Evolution API. |
 
 Decisões:
 - **Single-tenant** com 3 papéis. Para multiempresa, adicione `organization_id` e inclua na RLS.

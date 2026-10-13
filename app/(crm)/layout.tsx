@@ -5,9 +5,12 @@ import {
   Bell,
   ChevronDown,
   CircleHelp,
+  Contact,
   LayoutDashboard,
   LogOut,
+  MessageCircle,
   Settings,
+  Sparkles,
   Target,
   Users,
   UserPlus,
@@ -18,6 +21,9 @@ import "./crm.css";
 const links = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { href: "/leads", label: "Leads", icon: Users },
+  { href: "/contacts", label: "Contatos", icon: Contact },
+  { href: "/conversations", label: "Conversas", icon: MessageCircle },
+  { href: "/assistant", label: "Assistente IA", icon: Sparkles },
   { href: "/pipeline", label: "Funil de vendas", icon: Target },
   { href: "/reports", label: "Relatórios", icon: BarChart3 },
 ];
@@ -53,6 +59,7 @@ export default async function CrmLayout({
         <nav className="crm-nav" aria-label="Gerenciamento">
           <Link href="/settings/team"><Users size={17} />Equipe</Link>
           <Link href="/settings/pipeline"><Target size={17} />Etapas do funil</Link>
+          <Link href="/settings/knowledge"><MessageCircle size={17} />Base de conhecimento</Link>
           <Link href="/settings/integrations"><Settings size={17} />Integrações</Link>
           {localBypass && <Link href="/cadastro"><UserPlus size={17} />Cadastrar usuário</Link>}
         </nav>

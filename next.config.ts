@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.dirname(fileURLToPath(import.meta.url)),
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "9mb",
+    },
+  },
 };
 
 export default nextConfig;

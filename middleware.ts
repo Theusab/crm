@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   });
 
   const { data: { user } } = await supabase.auth.getUser();
-  const publicAuthRoute = ["/login", "/cadastro", "/auth/callback", "/setup"].includes(pathname);
+  const publicAuthRoute = ["/login", "/cadastro", "/auth/callback", "/setup", "/landing"].includes(pathname);
   if (!user && !publicAuthRoute) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);

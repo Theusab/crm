@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createAppClient, getAppIdentity } from "@/lib/supabase/app";
+import { getRecordType, withRecordType } from "@/lib/leads/record-type";
 
 const leadSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -63,6 +64,7 @@ export async function createLead(_state: LeadFormState, formData: FormData): Pro
     created_by: identity.id,
     position: Date.now(),
     tags,
+    custom: withRecordType({}, "lead"),
     next_follow_up_at: followUp?.toISOString() ?? null,
   }).select("id").single();
   if (error || !lead) return { error: error?.message ?? "Não foi possível criar o lead." };
@@ -94,11 +96,10 @@ export async function updateLead(_state: LeadFormState, formData: FormData): Pro
   const supabase = await createAppClient();
   const identity = await getAppIdentity();
   if (!identity?.profile) return { error: "Não foi possível identificar o usuário ativo." };
-  if (identity.profile.role === "sales") {
-    const { data: existing, error: accessError } = await supabase.from("leads").select("owner_id").eq("id", id).maybeSingle();
-    if (accessError || !existing || (existing.owner_id && existing.owner_id !== identity.id)) {
-      return { error: "Você não tem permissão para editar este lead." };
-    }
+  const { data: existing, error: accessError } = await supabase.from("leads").select("owner_id,custom").eq("id", id).maybeSingle();
+  if (accessError || !existing) return { error: "Não foi possível localizar este registro." };
+  if (identity.profile.role === "sales" && existing.owner_id && existing.owner_id !== identity.id) {
+    return { error: "Você não tem permissão para editar este registro." };
   }
   const { error } = await supabase.from("leads").update({
     name: parsed.data.name,
@@ -112,10 +113,11 @@ export async function updateLead(_state: LeadFormState, formData: FormData): Pro
     next_follow_up_at: followUp?.toISOString() ?? null,
   }).eq("id", id);
   if (error) return { error: error.message };
+  const basePath = getRecordType(existing.custom) === "contact" ? "/contacts" : "/leads";
   revalidatePath("/dashboard");
-  revalidatePath("/leads");
+  revalidatePath(basePath);
   revalidatePath("/pipeline");
-  revalidatePath(`/leads/${id}`);
+  revalidatePath(`${basePath}/${id}`);
   return {};
 }
 
@@ -168,6 +170,7 @@ export async function addLeadNote(_state: LeadFormState, formData: FormData): Pr
   });
   if (error) return { error: error.message };
   revalidatePath(`/leads/${leadId}`);
+  revalidatePath(`/contacts/${leadId}`);
   return {};
 }
 
@@ -176,13 +179,16 @@ export async function deleteLead(formData: FormData) {
   if (!z.string().uuid().safeParse(id).success) throw new Error("Identificador de lead inválido.");
   const supabase = await createAppClient();
   const identity = await getAppIdentity();
-  if (identity?.profile?.role !== "admin") throw new Error("Apenas administradores podem excluir leads.");
+  if (identity?.profile?.role !== "admin") throw new Error("Apenas administradores podem excluir registros.");
+  const { data: record, error: lookupError } = await supabase.from("leads").select("custom").eq("id", id).maybeSingle();
+  if (lookupError || !record) throw new Error(`Não foi possível localizar o registro: ${lookupError?.message ?? "registro indisponível"}`);
   const { error } = await supabase.from("leads").delete().eq("id", id);
-  if (error) throw new Error(`Não foi possível excluir o lead: ${error.message}`);
+  if (error) throw new Error(`Não foi possível excluir o registro: ${error.message}`);
+  const basePath = getRecordType(record.custom) === "contact" ? "/contacts" : "/leads";
   revalidatePath("/dashboard");
-  revalidatePath("/leads");
+  revalidatePath(basePath);
   revalidatePath("/pipeline");
-  redirect("/leads");
+  redirect(basePath);
 }
 
 export async function assignLead(formData: FormData) {

@@ -24,7 +24,7 @@ function localDateTime(value: string) {
     .slice(0, 16);
 }
 
-export function LeadForm({ lead }: { lead?: LeadRecord }) {
+export function LeadForm({ lead, basePath = "/leads" }: { lead?: LeadRecord; basePath?: "/leads" | "/contacts" }) {
   const action = lead ? updateLead : createLead;
   const [state, formAction, pending] = useActionState<LeadFormState, FormData>(action, {});
 
@@ -52,7 +52,7 @@ export function LeadForm({ lead }: { lead?: LeadRecord }) {
             <label>Tags<input name="tags" maxLength={800} defaultValue={lead?.tags?.join(", ") ?? ""} placeholder="Ex.: prioridade, inbound" /></label>
           </div>
           <span className="crm-note">É necessário informar pelo menos um e-mail ou telefone.</span>
-          <div className="crm-actions"><Link className="button button-secondary" href={lead ? `/leads/${lead.id}` : "/leads"}>Cancelar</Link><button className="button button-primary" disabled={pending}>{pending ? "Salvando..." : lead ? "Salvar alterações" : "Criar lead"}</button></div>
+          <div className="crm-actions"><Link className="button button-secondary" href={lead ? `${basePath}/${lead.id}` : "/leads"}>Cancelar</Link><button className="button button-primary" disabled={pending}>{pending ? "Salvando..." : lead ? "Salvar alterações" : "Criar lead"}</button></div>
         </form>
       </div>
     </section>

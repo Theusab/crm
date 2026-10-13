@@ -7,11 +7,11 @@ const currency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "cur
 export default async function DashboardPage() {
   const supabase = await createAppClient();
   const [{ count: leadCount, error: countError }, { data: stages, error: stagesError }, { data: leads, error: leadsError }, { count: wonCount, error: wonError }, { data: summaries, error: summariesError }] = await Promise.all([
-    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "open"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("custom->>record_type", "lead").eq("status", "open"),
     supabase.from("pipeline_stages").select("id,name,slug,color,probability").order("position"),
-    supabase.from("leads").select("id,name,company,value,score,source,created_at,stage:pipeline_stages(name,slug)").order("created_at", { ascending: false }).limit(8),
-    supabase.from("leads").select("id", { count: "exact", head: true }).eq("status", "won"),
-    supabase.from("leads").select("stage_id,value,score,status"),
+    supabase.from("leads").select("id,name,company,value,score,source,created_at,custom,stage:pipeline_stages(name,slug)").eq("custom->>record_type", "lead").order("created_at", { ascending: false }).limit(8),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("custom->>record_type", "lead").eq("status", "won"),
+    supabase.from("leads").select("stage_id,value,score,status").eq("custom->>record_type", "lead"),
   ]);
   if (countError || stagesError || leadsError || wonError || summariesError) throw new Error(`Falha ao carregar o painel: ${countError?.message ?? stagesError?.message ?? leadsError?.message ?? wonError?.message ?? summariesError?.message}`);
 
@@ -32,7 +32,9 @@ export default async function DashboardPage() {
       <div className="crm-panel-head"><div><h2>Leads recentes</h2><p>Contatos recebidos recentemente no CRM.</p></div><Link className="text-link" href="/leads">Ver todos <ArrowRight size={14} /></Link></div>
       {noLeads ? <div className="crm-empty"><Users size={22} /><strong>Seu funil está pronto para começar</strong><span>Os leads reais aparecerão aqui quando forem cadastrados ou recebidos por integração.</span><Link className="button button-primary" href="/leads/new"><Plus size={15} /> Cadastrar primeiro lead</Link></div> : <div className="crm-table-wrap"><table className="crm-table"><thead><tr><th>CONTATO</th><th>ETAPA</th><th>VALOR</th><th>SCORE IA</th><th>ORIGEM</th><th>RECEBIDO</th></tr></thead><tbody>{(leads ?? []).map((lead) => {
         const stage = Array.isArray(lead.stage) ? lead.stage[0] : lead.stage;
-        return <tr key={lead.id}><td><Link href={`/leads/${lead.id}`}>{lead.name}</Link><br /><span>{lead.company || "—"}</span></td><td><span className="crm-status">{stage?.name ?? "Sem etapa"}</span></td><td>{lead.value === null ? "—" : currency(Number(lead.value))}</td><td>{lead.score ?? "Pendente"}</td><td>{lead.source}</td><td>{new Date(lead.created_at).toLocaleDateString("pt-BR")}</td></tr>;
+        const custom = lead.custom && typeof lead.custom === "object" ? lead.custom : {};
+        const context = [lead.company && lead.company !== lead.name ? lead.company : null, custom.city, custom.specialty].filter(Boolean).join(" · ");
+        return <tr key={lead.id}><td><Link href={`/leads/${lead.id}`}>{lead.name}</Link><br /><span>{context || "—"}</span></td><td><span className="crm-status">{stage?.name ?? "Sem etapa"}</span></td><td>{lead.value === null ? "—" : currency(Number(lead.value))}</td><td>{lead.score ?? "Pendente"}</td><td>{lead.source}</td><td>{new Date(lead.created_at).toLocaleDateString("pt-BR")}</td></tr>;
       })}</tbody></table></div>}
     </section>
     <section className="crm-panel">

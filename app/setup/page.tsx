@@ -18,7 +18,7 @@ export default async function SetupPage({ searchParams }: { searchParams: Promis
           <li>Reinicie o servidor de desenvolvimento.</li>
         </ol>
         <pre>{`NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sua-chave-publica
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sua-chave-publica # ou NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SECRET_KEY=sua-chave-secreta
 WEBHOOK_SECRET=gere-um-segredo-forte`}</pre>
         <p className="setup-warning">Mantenha a chave secreta apenas em variáveis do servidor. Nunca use o prefixo NEXT_PUBLIC_ nela.</p>
